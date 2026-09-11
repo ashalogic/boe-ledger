@@ -41,8 +41,9 @@ async function blizzard(path, accessToken) {
   const url = new URL(`https://${region}.api.blizzard.com${path}`);
   url.searchParams.set("namespace", namespace);
   url.searchParams.set("locale", "en_GB");
-  url.searchParams.set("access_token", accessToken);
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   if (!res.ok)
     throw new Error(`Blizzard ${path}: ${res.status} ${await res.text()}`);
   return res.json();
