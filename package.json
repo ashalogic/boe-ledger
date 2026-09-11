@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "fetch": "node scripts/fetch-auctions.mjs",
+    "export-emojis": "node scripts/export-discord-emojis.mjs",
     "register-discord": "node scripts/register-discord.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

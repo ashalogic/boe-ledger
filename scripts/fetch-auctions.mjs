@@ -14,8 +14,19 @@ for (const name of required) if (!process.env[name]) throw new Error(`Missing ${
 const realms = JSON.parse(await readFile('config/realms.json'));
 const boeConfig = JSON.parse(await readFile('config/boe-items.json'));
 const difficultyConfig = JSON.parse(await readFile('config/boe-difficulties.json'));
+const emojiConfig = JSON.parse(await readFile('config/discord-emojis.json'));
 const boeIds = new Set(boeConfig.items.map(({ itemId }) => itemId));
 const normalize = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+const statKey = (item) =>
+  [
+    ...new Set(
+      (item.modifiers ?? [])
+        .filter(({ type }) => type === 29 || type === 30)
+        .map(({ value }) => value),
+    ),
+  ]
+    .sort((a, b) => a - b)
+    .join('-') || 'none';
 if (!boeIds.size) throw new Error('The BOE allow-list is empty.');
 
 async function getToken() {
@@ -184,6 +195,66 @@ for (const name of realms) {
 }
 calculator.close();
 
+const generatedAt = new Date();
+const generatedHour = Math.floor(generatedAt.getTime() / 3_600_000) * 3_600_000;
+const historyCutoff = generatedHour - 14 * 24 * 3_600_000;
+const market = {};
+
+for (const { itemId } of boeConfig.items) {
+  const key = `history:${itemId}`;
+  const history = (await kvGet(key)) ?? { schemaVersion: 1, itemId, points: [] };
+  const values = {};
+  for (const [realmIndex, realm] of snapshotRealms.entries()) {
+    const groups = new Map();
+    for (const row of realm.items.filter((entry) => entry.itemId === itemId)) {
+      const groupKey = `${realmIndex}|${row.difficulty.toLowerCase()}|${statKey(row)}`;
+      const current = groups.get(groupKey) ?? [row.min, 0];
+      current[0] = Math.min(current[0], row.min);
+      current[1] += row.quantity;
+      groups.set(groupKey, current);
+    }
+    Object.assign(values, Object.fromEntries(groups));
+  }
+  const points = (history.points ?? []).filter(
+    ({ t }) => t >= historyCutoff && t !== generatedHour,
+  );
+  points.push({ t: generatedHour, v: values });
+
+  for (const [seriesKey, current] of Object.entries(values)) {
+    const firstSeen = points.findIndex(({ v }) => v[seriesKey]);
+    let lastPrice = current[0];
+    const series = points.slice(firstSeen).map(({ t, v }) => {
+      if (v[seriesKey]) lastPrice = v[seriesKey][0];
+      return [t, lastPrice, v[seriesKey]?.[1] ?? 0];
+    });
+    const first = series[0];
+    let disappeared = 0;
+    for (let index = 1; index < series.length; index += 1)
+      disappeared += Math.max(0, series[index - 1][2] - series[index][2]);
+    const observedDays = Math.max((series.at(-1)[0] - first[0]) / 86_400_000, 1);
+    const dailyMovement = disappeared / observedDays;
+    const estimatedDays = dailyMovement > 0 ? current[1] / dailyMovement : null;
+    const activity =
+      estimatedDays === null
+        ? 'low'
+        : estimatedDays <= 2
+          ? 'high'
+          : estimatedDays <= 7
+            ? 'medium'
+            : 'low';
+    const priceChange = first[1] ? Math.round(((current[0] - first[1]) / first[1]) * 100) : 0;
+    const [realmIndex, difficulty, stats] = seriesKey.split('|');
+    market[`${snapshotRealms[Number(realmIndex)].name}|${itemId}|${difficulty}|${stats}`] = {
+      activity,
+      dailyMovement: Math.round(dailyMovement * 10) / 10,
+      estimatedDays: estimatedDays === null ? null : Math.round(estimatedDays * 10) / 10,
+      priceChange,
+      samples: series.length,
+    };
+  }
+  await kvPut(key, { schemaVersion: 1, itemId, points });
+}
+
 const previousItems = new Map((previous?.items ?? []).map((item) => [item.itemId, item]));
 const snapshotItems = await Promise.all(
   boeConfig.items.map(async ({ itemId, name }) => {
@@ -198,13 +269,15 @@ const snapshotItems = await Promise.all(
       itemId,
       name: name || String(itemId),
       icon,
+      emojiId: emojiConfig[String(itemId)] || undefined,
     };
   }),
 );
 
 await kvPut('snapshot:current', {
   schemaVersion: 3,
-  generatedAt: new Date().toISOString(),
+  generatedAt: generatedAt.toISOString(),
   items: snapshotItems.sort((a, b) => a.name.localeCompare(b.name)),
   realms: snapshotRealms,
+  market,
 });

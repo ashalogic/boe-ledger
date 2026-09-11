@@ -28,18 +28,40 @@ const stats = (row) =>
 const extras = (row) => [
   ...new Set((row.bonusLists ?? []).map((id) => BONUS_NAMES[id]).filter(Boolean)),
 ];
+const statKey = (row) =>
+  [
+    ...new Set(
+      (row.modifiers ?? [])
+        .filter(({ type }) => type === 29 || type === 30)
+        .map(({ value }) => value),
+    ),
+  ]
+    .sort((a, b) => a - b)
+    .join('-') || 'none';
+const statLabel = (key) =>
+  key === 'none'
+    ? 'Unspecified'
+    : key
+        .split('-')
+        .map((value) => STAT_NAMES[value] ?? value)
+        .join(' / ');
+const marketLabel = (metric) => {
+  if (!metric || metric.samples < 2) return '⚪ Building history';
+  const activity = { high: '🔥 High', medium: '🟡 Medium', low: '🐢 Low' }[metric.activity];
+  const wait = metric.estimatedDays === null ? 'no estimate' : `~${metric.estimatedDays}d supply`;
+  const trend = `${metric.priceChange > 0 ? '+' : ''}${metric.priceChange}% price`;
+  return `${activity} activity · ${wait} · ${trend}`;
+};
 const updated = (generatedAt) => {
   const timestamp = Math.floor(Date.parse(generatedAt) / 1000);
   return Number.isFinite(timestamp)
     ? `Prices updated <t:${timestamp}:F> (<t:${timestamp}:R>)`
     : 'Price update time unavailable';
 };
-const twoColumns = (fields) =>
-  fields.flatMap((field, index) =>
-    index % 2 === 1 && index < fields.length - 1
-      ? [field, { name: '\u200b', value: '\u200b', inline: true }]
-      : [field],
-  );
+const itemAuthor = (meta, item) => ({
+  name: meta?.name ?? `Item ${item}`,
+  ...(meta?.icon ? { icon_url: meta.icon } : {}),
+});
 
 async function validRequest(request, env) {
   const signature = request.headers.get('X-Signature-Ed25519');
@@ -61,16 +83,19 @@ async function validRequest(request, env) {
   );
 }
 
-const realmRows = (snapshot, realm, item, difficulty) =>
+const realmRows = (snapshot, realm, item, difficulty, selectedStats = 'all') =>
   (snapshot.realms.find(({ name }) => normalize(name) === normalize(realm))?.items ?? []).filter(
-    (entry) => entry.itemId === Number(item) && entry.difficulty?.toLowerCase() === difficulty,
+    (entry) =>
+      entry.itemId === Number(item) &&
+      entry.difficulty?.toLowerCase() === difficulty &&
+      (selectedStats === 'all' || statKey(entry) === selectedStats),
   );
 const rowLabel = (row) => {
   const bonus = extras(row);
   return `${stats(row)}${bonus.length ? ` · ${bonus.join(' · ')}` : ''}`;
 };
 
-function controls(snapshot, owner, item, difficulty, selectedRealm, page) {
+function controls(snapshot, owner, item, difficulty, selectedStats, selectedRealm, page) {
   const pageCount = Math.max(1, Math.ceil(snapshot.items.length / 25));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
   const start = safePage * 25;
@@ -80,12 +105,15 @@ function controls(snapshot, owner, item, difficulty, selectedRealm, page) {
       components: [
         {
           type: 3,
-          custom_id: `boe:item:${difficulty || 'none'}:${safePage}:${owner}`,
+          custom_id: `boe:item:${difficulty || 'none'}:${selectedStats}:${safePage}:${owner}`,
           placeholder: `1. Select a BOE item · page ${safePage + 1}/${pageCount}`,
           options: snapshot.items.slice(start, start + 25).map((choice) => ({
             label: choice.name,
             value: String(choice.itemId),
             default: String(choice.itemId) === String(item),
+            ...(choice.emojiId
+              ? { emoji: { id: choice.emojiId, name: `item_${choice.itemId}` } }
+              : {}),
           })),
         },
       ],
@@ -99,14 +127,14 @@ function controls(snapshot, owner, item, difficulty, selectedRealm, page) {
           type: 2,
           style: 2,
           label: 'Previous items',
-          custom_id: `boe:page:${Math.max(0, safePage - 1)}:${item || 'none'}:${difficulty || 'none'}:${owner}`,
+          custom_id: `boe:page:${Math.max(0, safePage - 1)}:${item || 'none'}:${difficulty || 'none'}:${selectedStats}:${owner}`,
           disabled: safePage === 0,
         },
         {
           type: 2,
           style: 2,
           label: 'Next items',
-          custom_id: `boe:page:${Math.min(pageCount - 1, safePage + 1)}:${item || 'none'}:${difficulty || 'none'}:${owner}`,
+          custom_id: `boe:page:${Math.min(pageCount - 1, safePage + 1)}:${item || 'none'}:${difficulty || 'none'}:${selectedStats}:${owner}`,
           disabled: safePage === pageCount - 1,
         },
       ],
@@ -116,7 +144,7 @@ function controls(snapshot, owner, item, difficulty, selectedRealm, page) {
     components: [
       {
         type: 3,
-        custom_id: `boe:difficulty:${item || 'none'}:${safePage}:${owner}`,
+        custom_id: `boe:difficulty:${item || 'none'}:${selectedStats}:${safePage}:${owner}`,
         placeholder: '2. Select a difficulty',
         options: ['Normal', 'Heroic', 'Mythic'].map((name) => ({
           label: name,
@@ -132,8 +160,35 @@ function controls(snapshot, owner, item, difficulty, selectedRealm, page) {
       components: [
         {
           type: 3,
-          custom_id: `boe:realm:${item}:${difficulty}:${safePage}:${owner}`,
-          placeholder: 'Optional: inspect one realm',
+          custom_id: `boe:stats:${item}:${difficulty}:${safePage}:${owner}`,
+          placeholder: '3. Filter secondary stats',
+          options: [
+            { label: 'All secondary stats', value: 'all', default: selectedStats === 'all' },
+            ...[
+              ...new Set(
+                snapshot.realms.flatMap(({ name }) =>
+                  realmRows(snapshot, name, item, difficulty).map(statKey),
+                ),
+              ),
+            ]
+              .sort((a, b) => statLabel(a).localeCompare(statLabel(b)))
+              .map((key) => ({
+                label: statLabel(key),
+                value: key,
+                default: selectedStats === key,
+              })),
+          ].slice(0, 25),
+        },
+      ],
+    });
+  if (item && difficulty)
+    result.push({
+      type: 1,
+      components: [
+        {
+          type: 3,
+          custom_id: `boe:realm:${item}:${difficulty}:${selectedStats}:${safePage}:${owner}`,
+          placeholder: '4. Optional: inspect one realm',
           options: [
             { label: 'All realms', value: '__all__', default: !selectedRealm },
             ...snapshot.realms
@@ -146,8 +201,24 @@ function controls(snapshot, owner, item, difficulty, selectedRealm, page) {
   return result;
 }
 
-async function render(snapshot, owner, item = '', difficulty = '', selectedRealm = '', page = 0) {
-  const components = controls(snapshot, owner, item, difficulty, selectedRealm, page);
+async function render(
+  snapshot,
+  owner,
+  item = '',
+  difficulty = '',
+  selectedStats = 'all',
+  selectedRealm = '',
+  page = 0,
+) {
+  const components = controls(
+    snapshot,
+    owner,
+    item,
+    difficulty,
+    selectedStats,
+    selectedRealm,
+    page,
+  );
   if (!item || !difficulty)
     return {
       embeds: [
@@ -157,7 +228,9 @@ async function render(snapshot, owner, item = '', difficulty = '', selectedRealm
     };
   const meta = snapshot.items.find((entry) => entry.itemId === Number(item));
   if (selectedRealm) {
-    const rows = realmRows(snapshot, selectedRealm, item, difficulty).sort((a, b) => a.min - b.min);
+    const rows = realmRows(snapshot, selectedRealm, item, difficulty, selectedStats).sort(
+      (a, b) => a.min - b.min,
+    );
     const grouped = new Map();
     for (const row of rows) {
       const key = `${row.itemLevel}:${rowLabel(row)}`;
@@ -171,22 +244,22 @@ async function render(snapshot, owner, item = '', difficulty = '', selectedRealm
       current.quantity += row.quantity;
       grouped.set(key, current);
     }
-    const fields = twoColumns(
-      [...grouped.values()]
-        .sort((a, b) => a.min - b.min)
-        .slice(0, 16)
-        .map((row) => ({
+    const fields = [...grouped.values()]
+      .sort((a, b) => a.min - b.min)
+      .slice(0, 25)
+      .map((row) => {
+        const metric = snapshot.market?.[`${selectedRealm}|${item}|${difficulty}|${statKey(row)}`];
+        return {
           name: `⚔️ ${row.label}`,
-          value: `⭐ **ilvl ${row.itemLevel ?? '?'}**\n💰 **${gold(row.min)}**\n📦 **${row.quantity}** available`,
-          inline: true,
-        })),
-    );
+          value: `⭐ **ilvl ${row.itemLevel ?? '?'}**  ·  💰 **${gold(row.min)}**  ·  📦 **${row.quantity} available**\n${marketLabel(metric)}`,
+          inline: false,
+        };
+      });
     return {
       embeds: [
         {
-          title: `📘 ${meta?.name ?? `Item ${item}`}`,
-          description: `**${selectedRealm} · ${difficulty}**\n${updated(snapshot.generatedAt)}`,
-          thumbnail: meta?.icon ? { url: meta.icon } : undefined,
+          author: itemAuthor(meta, item),
+          description: `**${selectedRealm} · ${difficulty} · ${selectedStats === 'all' ? 'All stats' : statLabel(selectedStats)}**\n${updated(snapshot.generatedAt)}`,
           fields: fields.length
             ? fields
             : [{ name: 'No listings', value: 'No matching auctions found.' }],
@@ -197,7 +270,10 @@ async function render(snapshot, owner, item = '', difficulty = '', selectedRealm
     };
   }
   const summaries = snapshot.realms
-    .map(({ name }) => ({ name, rows: realmRows(snapshot, name, item, difficulty) }))
+    .map(({ name }) => ({
+      name,
+      rows: realmRows(snapshot, name, item, difficulty, selectedStats),
+    }))
     .filter(({ rows }) => rows.length)
     .map(({ name, rows }) => ({
       name,
@@ -205,22 +281,20 @@ async function render(snapshot, owner, item = '', difficulty = '', selectedRealm
       total: rows.reduce((sum, row) => sum + row.quantity, 0),
     }))
     .sort((a, b) => a.cheapest.min - b.cheapest.min);
-  const fields = twoColumns(
-    summaries.map(({ name, cheapest, total }) => {
-      const bonus = extras(cheapest);
-      return {
-        name,
-        value: `⭐ **ilvl ${cheapest.itemLevel ?? '?'}**\n💰 **${gold(cheapest.min)}**\n📦 **${cheapest.quantity} at this variant · ${total} total**\n⚔️ ${stats(cheapest)}${bonus.length ? `\n✨ ${bonus.join(' · ')}` : ''}`,
-        inline: true,
-      };
-    }),
-  );
+  const fields = summaries.map(({ name, cheapest, total }, index) => {
+    const bonus = extras(cheapest);
+    const metric = snapshot.market?.[`${name}|${item}|${difficulty}|${statKey(cheapest)}`];
+    return {
+      name: `${index === 0 ? '🏆' : '🌐'} ${name}`,
+      value: `💰 **${gold(cheapest.min)}**  ·  📦 **${cheapest.quantity} cheapest / ${total} total**\n⭐ **ilvl ${cheapest.itemLevel ?? '?'}**  ·  ⚔️ ${stats(cheapest)}${bonus.length ? `  ·  ✨ ${bonus.join(' · ')}` : ''}\n${marketLabel(metric)}`,
+      inline: false,
+    };
+  });
   return {
     embeds: [
       {
-        title: `📘 ${meta?.name ?? `Item ${item}`}`,
-        description: `**${difficulty} · EU realm comparison**\n${updated(snapshot.generatedAt)}`,
-        thumbnail: meta?.icon ? { url: meta.icon } : undefined,
+        author: itemAuthor(meta, item),
+        description: `**${difficulty} · ${selectedStats === 'all' ? 'All stats' : statLabel(selectedStats)} · EU comparison**\n${updated(snapshot.generatedAt)}\n*Activity estimates use listing disappearances; cancellations can affect them.*`,
         fields: fields.length
           ? fields
           : [{ name: 'No listings', value: 'No matching auctions found.' }],
@@ -261,8 +335,9 @@ export default {
             owner,
             value,
             parts[2] === 'none' ? '' : parts[2],
+            parts[3],
             '',
-            Number(parts[3]),
+            Number(parts[4]),
           ),
         });
       if (action === 'difficulty')
@@ -273,9 +348,15 @@ export default {
             owner,
             parts[2] === 'none' ? '' : parts[2],
             value,
+            parts[3],
             '',
-            Number(parts[3]),
+            Number(parts[4]),
           ),
+        });
+      if (action === 'stats')
+        return json({
+          type: 7,
+          data: await render(snapshot, owner, parts[2], parts[3], value, '', Number(parts[4])),
         });
       if (action === 'realm')
         return json({
@@ -285,8 +366,9 @@ export default {
             owner,
             parts[2],
             parts[3],
+            parts[4],
             value === '__all__' ? '' : value,
-            Number(parts[4]),
+            Number(parts[5]),
           ),
         });
       if (action === 'page')
@@ -297,6 +379,7 @@ export default {
             owner,
             parts[3] === 'none' ? '' : parts[3],
             parts[4] === 'none' ? '' : parts[4],
+            parts[5],
             '',
             Number(parts[2]),
           ),

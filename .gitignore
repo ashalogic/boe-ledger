@@ -5,3 +5,4 @@ node_modules/
 pnpm-debug.log*
 .wrangler/
 .bonus-id-tool/
+discord-emojis/
