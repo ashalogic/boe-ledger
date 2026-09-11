@@ -1,7 +1,7 @@
 name: Refresh BOE prices
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: '17 * * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,6 +13,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/checkout@v4
+        with:
+          repository: TradeSkillMaster/BonusIdTool
+          ref: a1b9616a29e89db73db4b4f4fd33aec3804753c9
+          path: .bonus-id-tool
+      - run: pip install -r .bonus-id-tool/requirements.txt
       - run: npm run fetch
         env:
           BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}

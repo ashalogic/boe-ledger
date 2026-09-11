@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="BOE Ledger compares World of Warcraft BOE auction prices across selected EU realms in Discord."
+    />
+    <title>BOE Ledger</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">World of Warcraft · EU</p>
+        <h1>BOE Ledger</h1>
+        <p class="intro">
+          Compare current Bind-on-Equip auction prices across major EU realms without leaving
+          Discord.
+        </p>
+        <div class="badges" aria-label="Project status">
+          <a href="https://github.com/ashalogic/boe-ledger/actions/workflows/refresh.yml"
+            ><img
+              src="https://github.com/ashalogic/boe-ledger/actions/workflows/refresh.yml/badge.svg?branch=main"
+              alt="BOE price refresh status"
+          /></a>
+          <a href="https://boe-ledger.ashalogic.workers.dev/"
+            ><img
+              src="https://img.shields.io/website?url=https%3A%2F%2Fboe-ledger.ashalogic.workers.dev%2F&amp;label=Cloudflare%20Worker"
+              alt="Cloudflare Worker availability"
+          /></a>
+        </div>
+      </header>
+      <section class="command" aria-labelledby="command-title">
+        <div>
+          <p class="step">Discord command</p>
+          <h2 id="command-title"><code>/boe</code></h2>
+        </div>
+        <ol>
+          <li>Select a BOE item.</li>
+          <li>Select Normal, Heroic, or Mythic.</li>
+          <li>Compare price, item level, stats, extras, and quantity by realm.</li>
+        </ol>
+      </section>
+      <section class="grid" aria-label="Project details">
+        <article>
+          <p class="icon" aria-hidden="true">⚖️</p>
+          <h2>Clear comparisons</h2>
+          <p>One readable result per realm, with detailed variants available when needed.</p>
+        </article>
+        <article>
+          <p class="icon" aria-hidden="true">🕒</p>
+          <h2>Hourly prices</h2>
+          <p>Auction data refreshes about once per hour and every result shows its update time.</p>
+        </article>
+        <article>
+          <p class="icon" aria-hidden="true">🔒</p>
+          <h2>Safe controls</h2>
+          <p>Responses are public, but only the person who ran the command can use its menus.</p>
+        </article>
+      </section>
+      <section class="realms" aria-labelledby="realms-title">
+        <p class="step">Tracked realms</p>
+        <h2 id="realms-title">Major EU auction houses</h2>
+        <p>
+          Kazzak · Draenor · Tarren Mill · Silvermoon · Twisting Nether · Ravencrest · Ragnaros ·
+          Argent Dawn · Stormscale · Defias Brotherhood
+        </p>
+      </section>
+      <footer>
+        <a href="https://github.com/ashalogic/boe-ledger">View source on GitHub</a
+        ><span>Battle.net → GitHub Actions → Cloudflare KV → Discord</span>
+      </footer>
+    </main>
+  </body>
+</html>
