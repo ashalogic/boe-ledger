@@ -20,6 +20,18 @@ jobs:
           repository: TradeSkillMaster/BonusIdTool
           ref: a1b9616a29e89db73db4b4f4fd33aec3804753c9
           path: .bonus-id-tool
+      - name: Resolve current WoW build
+        id: wow-build
+        run: |
+          version=$(curl --fail --silent --show-error --retry 5 https://wago.tools/api/builds/wow/latest | jq -r .version)
+          test -n "$version"
+          test "$version" != "null"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Restore DBC cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: bonus-id-dbc-${{ runner.os }}-${{ steps.wow-build.outputs.version }}-${{ hashFiles('.bonus-id-tool/lib/**') }}
       - run: pip install -r .bonus-id-tool/requirements.txt
       - run: npm run fetch
         env:
