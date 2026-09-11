@@ -1,4 +1,14 @@
 {
   "note": "Curated BOE allow-list. Add an item after verifying it is Bind on Equip; the Blizzard auction API does not expose an item's bind type.",
-  "items": []
+  "items": [
+    { "itemId": 271638, "name": "Bound Serpent's Jade Eye" },
+    { "itemId": 271445, "name": "Fanged Brute's Greatbelt" },
+    { "itemId": 271444, "name": "Pauldrons of the Forgotten Sacrifice" },
+    { "itemId": 271440, "name": "Greaves of the Noxious Depths" },
+    { "itemId": 271441, "name": "Crushing Coiler Coif" },
+    { "itemId": 271436, "name": "Slitherscale Girdle" },
+    { "itemId": 271438, "name": "Temple Delver's Mystic Helm" },
+    { "itemId": 271435, "name": "Slippers of the Hissing Cult" },
+    { "itemId": 271434, "name": "Venom Rite Mantle" }
+  ]
 }
