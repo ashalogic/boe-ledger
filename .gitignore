@@ -1,0 +1,6 @@
+.env
+.dev.vars
+node_modules/
+.pnpm-store/
+pnpm-debug.log*
+.wrangler/
