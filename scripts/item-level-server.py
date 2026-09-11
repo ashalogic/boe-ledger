@@ -1,6 +1,36 @@
 import json
 import os
 import sys
+import time
+
+import requests
+
+
+original_get = requests.get
+
+
+def resilient_get(*args, **kwargs):
+    """Retry interrupted Wago/DBC downloads before BonusIdTool sees them."""
+    kwargs.setdefault("timeout", (15, 180))
+    last_error = None
+    for attempt in range(5):
+        try:
+            return original_get(*args, **kwargs)
+        except requests.exceptions.RequestException as error:
+            last_error = error
+            if attempt == 4:
+                raise
+            delay = 2**attempt
+            print(
+                f"Item data download failed; retrying in {delay}s ({attempt + 1}/5)",
+                file=sys.stderr,
+                flush=True,
+            )
+            time.sleep(delay)
+    raise last_error
+
+
+requests.get = resilient_get
 
 tool_path = os.environ.get("BONUS_ID_TOOL_PATH", ".bonus-id-tool")
 sys.path.insert(0, tool_path)
