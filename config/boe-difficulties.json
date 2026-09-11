@@ -1,0 +1,8 @@
+{
+  "contexts": {
+    "3": "Normal",
+    "5": "Heroic",
+    "6": "Mythic"
+  },
+  "bonusLists": {}
+}

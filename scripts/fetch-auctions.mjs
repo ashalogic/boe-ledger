@@ -15,6 +15,7 @@ const region = "eu";
 const namespace = "dynamic-eu";
 const realms = JSON.parse(await readFile("config/realms.json"));
 const boeConfig = JSON.parse(await readFile("config/boe-items.json"));
+const difficultyConfig = JSON.parse(await readFile("config/boe-difficulties.json"));
 const boeIds = new Set(boeConfig.items.map(({ itemId }) => itemId));
 if (!boeIds.size)
   throw new Error(
@@ -59,6 +60,10 @@ async function kv(key, value) {
     throw new Error(`KV write ${key}: ${res.status} ${await res.text()}`);
 }
 const normalize = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+const difficultyFor = (item) => {
+  const bonusKey = [...(item.bonus_lists ?? [])].sort((a, b) => a - b).join(",");
+  return difficultyConfig.bonusLists[bonusKey] ?? difficultyConfig.contexts[String(item.context)] ?? "Unknown";
+};
 const accessToken = await token();
 const realmIds = new Map();
 const wantedRealms = new Set(realms.map(normalize));
@@ -113,10 +118,17 @@ for (const realmName of realms) {
       auction.unit_price ??
       Math.ceil((auction.buyout ?? 0) / Math.max(auction.quantity ?? 1, 1));
     if (!unit) continue;
-    const current = prices.get(itemId) ?? { itemId, min: unit, quantity: 0 };
+    const variant = {
+      context: auction.item.context ?? 0,
+      bonusLists: [...(auction.item.bonus_lists ?? [])].sort((a, b) => a - b),
+      modifiers: [...(auction.item.modifiers ?? [])].sort((a, b) => a.type - b.type || a.value - b.value),
+    };
+    const variantKey = JSON.stringify(variant);
+    const key = `${itemId}:${variantKey}`;
+    const current = prices.get(key) ?? { itemId, variantKey, difficulty: difficultyFor(auction.item), ...variant, min: unit, quantity: 0 };
     current.min = Math.min(current.min, unit);
     current.quantity += auction.quantity ?? 1;
-    prices.set(itemId, current);
+    prices.set(key, current);
   }
   const realmKey = normalize(realmName);
   await kv(`realm:${realmKey}`, {
