@@ -1,5 +1,15 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 
+try {
+  const file = await readFile('.env', 'utf8');
+  for (const line of file.split(/\r?\n/)) {
+    const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
+    if (match && !process.env[match[1]]) process.env[match[1]] = match[2].trim();
+  }
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+
 const { BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET } = process.env;
 if (!BLIZZARD_CLIENT_ID || !BLIZZARD_CLIENT_SECRET)
   throw new Error('Set BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET');
