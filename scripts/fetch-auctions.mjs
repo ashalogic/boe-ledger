@@ -34,9 +34,9 @@ async function getToken() {
   return (await result.json()).access_token;
 }
 
-async function blizzard(path, token) {
+async function blizzard(path, token, namespace = 'dynamic-eu') {
   const url = new URL(`https://eu.api.blizzard.com${path}`);
-  url.searchParams.set('namespace', 'dynamic-eu');
+  url.searchParams.set('namespace', namespace);
   url.searchParams.set('locale', 'en_GB');
   const result = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!result.ok) throw new Error(`Blizzard ${path}: ${result.status} ${await result.text()}`);
@@ -184,11 +184,27 @@ for (const name of realms) {
 }
 calculator.close();
 
+const previousItems = new Map((previous?.items ?? []).map((item) => [item.itemId, item]));
+const snapshotItems = await Promise.all(
+  boeConfig.items.map(async ({ itemId, name }) => {
+    let icon = previousItems.get(itemId)?.icon;
+    try {
+      const media = await blizzard(`/data/wow/media/item/${itemId}`, token, 'static-eu');
+      icon = media.assets?.find(({ key }) => key === 'icon')?.value ?? icon;
+    } catch (error) {
+      console.warn(`Could not refresh icon for item ${itemId}: ${error.message}`);
+    }
+    return {
+      itemId,
+      name: name || String(itemId),
+      icon,
+    };
+  }),
+);
+
 await kvPut('snapshot:current', {
-  schemaVersion: 2,
+  schemaVersion: 3,
   generatedAt: new Date().toISOString(),
-  items: boeConfig.items
-    .map(({ itemId, name }) => ({ itemId, name: name || String(itemId) }))
-    .sort((a, b) => a.name.localeCompare(b.name)),
+  items: snapshotItems.sort((a, b) => a.name.localeCompare(b.name)),
   realms: snapshotRealms,
 });

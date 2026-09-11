@@ -81,6 +81,23 @@ p {
   height: 1.25rem;
 }
 
+.invite {
+  display: inline-block;
+  margin-top: 1.5rem;
+  padding: 0.8rem 1.1rem;
+  border: 1px solid #f5cc69;
+  border-radius: 0.65rem;
+  background: #f5cc69;
+  color: #07101f;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.invite:hover,
+.invite:focus-visible {
+  background: #ffe095;
+}
+
 .command,
 article,
 .realms {

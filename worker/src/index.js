@@ -34,6 +34,12 @@ const updated = (generatedAt) => {
     ? `Prices updated <t:${timestamp}:F> (<t:${timestamp}:R>)`
     : 'Price update time unavailable';
 };
+const twoColumns = (fields) =>
+  fields.flatMap((field, index) =>
+    index % 2 === 1 && index < fields.length - 1
+      ? [field, { name: '\u200b', value: '\u200b', inline: true }]
+      : [field],
+  );
 
 async function validRequest(request, env) {
   const signature = request.headers.get('X-Signature-Ed25519');
@@ -165,19 +171,22 @@ async function render(snapshot, owner, item = '', difficulty = '', selectedRealm
       current.quantity += row.quantity;
       grouped.set(key, current);
     }
-    const fields = [...grouped.values()]
-      .sort((a, b) => a.min - b.min)
-      .slice(0, 25)
-      .map((row) => ({
-        name: `⚔️ ${row.label}`,
-        value: `⭐ **ilvl ${row.itemLevel ?? '?'}**\n💰 **${gold(row.min)}**\n📦 **${row.quantity}** available`,
-        inline: true,
-      }));
+    const fields = twoColumns(
+      [...grouped.values()]
+        .sort((a, b) => a.min - b.min)
+        .slice(0, 16)
+        .map((row) => ({
+          name: `⚔️ ${row.label}`,
+          value: `⭐ **ilvl ${row.itemLevel ?? '?'}**\n💰 **${gold(row.min)}**\n📦 **${row.quantity}** available`,
+          inline: true,
+        })),
+    );
     return {
       embeds: [
         {
           title: `📘 ${meta?.name ?? `Item ${item}`}`,
           description: `**${selectedRealm} · ${difficulty}**\n${updated(snapshot.generatedAt)}`,
+          thumbnail: meta?.icon ? { url: meta.icon } : undefined,
           fields: fields.length
             ? fields
             : [{ name: 'No listings', value: 'No matching auctions found.' }],
@@ -196,19 +205,22 @@ async function render(snapshot, owner, item = '', difficulty = '', selectedRealm
       total: rows.reduce((sum, row) => sum + row.quantity, 0),
     }))
     .sort((a, b) => a.cheapest.min - b.cheapest.min);
-  const fields = summaries.map(({ name, cheapest, total }) => {
-    const bonus = extras(cheapest);
-    return {
-      name,
-      value: `⭐ **ilvl ${cheapest.itemLevel ?? '?'}**\n💰 **${gold(cheapest.min)}**\n📦 **${cheapest.quantity} at this variant · ${total} total**\n⚔️ ${stats(cheapest)}${bonus.length ? `\n✨ ${bonus.join(' · ')}` : ''}`,
-      inline: true,
-    };
-  });
+  const fields = twoColumns(
+    summaries.map(({ name, cheapest, total }) => {
+      const bonus = extras(cheapest);
+      return {
+        name,
+        value: `⭐ **ilvl ${cheapest.itemLevel ?? '?'}**\n💰 **${gold(cheapest.min)}**\n📦 **${cheapest.quantity} at this variant · ${total} total**\n⚔️ ${stats(cheapest)}${bonus.length ? `\n✨ ${bonus.join(' · ')}` : ''}`,
+        inline: true,
+      };
+    }),
+  );
   return {
     embeds: [
       {
         title: `📘 ${meta?.name ?? `Item ${item}`}`,
         description: `**${difficulty} · EU realm comparison**\n${updated(snapshot.generatedAt)}`,
+        thumbnail: meta?.icon ? { url: meta.icon } : undefined,
         fields: fields.length
           ? fields
           : [{ name: 'No listings', value: 'No matching auctions found.' }],
