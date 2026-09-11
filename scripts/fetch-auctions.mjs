@@ -88,6 +88,10 @@ const itemIndex = {};
 for (const item of Object.values(itemMeta))
   itemIndex[normalize(item.name)] = item.itemId;
 await kv("items:index", itemIndex);
+await kv(
+  "items:choices",
+  Object.values(itemMeta).sort((a, b) => a.name.localeCompare(b.name)),
+);
 await Promise.all(
   Object.values(itemMeta).map((item) => kv(`item:${item.itemId}`, item)),
 );
