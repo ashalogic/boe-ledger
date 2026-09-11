@@ -1,0 +1,4 @@
+{
+  "note": "Curated BOE allow-list. Add an item after verifying it is Bind on Equip; the Blizzard auction API does not expose an item's bind type.",
+  "items": []
+}

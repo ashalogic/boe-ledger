@@ -1,0 +1,12 @@
+{
+  "name": "boe-ledger",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch": "node scripts/fetch-auctions.mjs",
+    "register-discord": "node scripts/register-discord.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
