@@ -59,23 +59,23 @@ async function kv(key, value) {
 }
 const normalize = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
 const accessToken = await token();
-const realmSlug = (name) =>
-  name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
 const realmIds = new Map();
-for (const realmName of realms) {
-  const realm = await blizzard(
-    `/data/wow/realm/${realmSlug(realmName)}`,
-    accessToken,
-  );
-  const id = Number(
-    realm.connected_realm?.href?.match(/connected-realm\/(\d+)/)?.[1],
-  );
-  if (!id) throw new Error(`Could not resolve realm: ${realmName}`);
-  realmIds.set(normalize(realmName), id);
+const wantedRealms = new Set(realms.map(normalize));
+const connectedIndex = await blizzard('/data/wow/connected-realm/index', accessToken);
+for (const entry of connectedIndex.connected_realms ?? []) {
+  if (!wantedRealms.size) break;
+  const id = Number(entry.href.match(/connected-realm\/(\d+)/)?.[1]);
+  if (!id) continue;
+  const connected = await blizzard(`/data/wow/connected-realm/${id}`, accessToken);
+  for (const realm of connected.realms ?? []) {
+    const key = normalize(realm.name);
+    if (wantedRealms.has(key)) {
+      realmIds.set(key, id);
+      wantedRealms.delete(key);
+    }
+  }
 }
+if (wantedRealms.size) throw new Error(`Could not resolve realms: ${[...wantedRealms].join(', ')}`);
 
 const itemMeta = Object.fromEntries(
   boeConfig.items.map((i) => [
