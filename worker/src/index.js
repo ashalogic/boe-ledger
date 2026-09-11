@@ -1,34 +1,183 @@
-const enc = new TextEncoder();
-const normalize = value => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-const gold = copper => `${Math.floor(copper / 10000).toLocaleString()}g ${Math.floor(copper % 10000 / 100)}s`;
-const response = data => Response.json(data);
+const encoder = new TextEncoder();
+const normalize = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const response = (data) => Response.json(data);
+const STAT_NAMES = { 32: 'Critical Strike', 36: 'Haste', 40: 'Versatility', 49: 'Mastery' };
+
+function gold(copper) {
+  const amount = Math.floor(copper / 10000).toLocaleString('en-US');
+  const silver = Math.floor((copper % 10000) / 100);
+  return `${amount}g ${silver}s`;
+}
+
+function stats(row) {
+  const names = (row.modifiers ?? [])
+    .map(({ value }) => STAT_NAMES[value])
+    .filter(Boolean);
+  return [...new Set(names)].join(' / ') || 'Unspecified';
+}
+
 async function validRequest(request, env) {
-  const signature = request.headers.get('X-Signature-Ed25519'), timestamp = request.headers.get('X-Signature-Timestamp');
+  const signature = request.headers.get('X-Signature-Ed25519');
+  const timestamp = request.headers.get('X-Signature-Timestamp');
   if (!signature || !timestamp || !env.DISCORD_PUBLIC_KEY) return false;
-  const hex = value => Uint8Array.from(value.match(/.{2}/g) ?? [], x => parseInt(x, 16));
-  const key = await crypto.subtle.importKey('raw', hex(env.DISCORD_PUBLIC_KEY), { name: 'Ed25519' }, false, ['verify']);
-  return crypto.subtle.verify('Ed25519', key, hex(signature), enc.encode(timestamp + await request.clone().text()));
+  const hex = (value) => Uint8Array.from(value.match(/.{2}/g) ?? [], (part) => parseInt(part, 16));
+  const key = await crypto.subtle.importKey(
+    'raw',
+    hex(env.DISCORD_PUBLIC_KEY),
+    { name: 'Ed25519' },
+    false,
+    ['verify'],
+  );
+  return crypto.subtle.verify(
+    'Ed25519',
+    key,
+    hex(signature),
+    encoder.encode(timestamp + (await request.clone().text())),
+  );
 }
-async function price(env, realm, item) { const data = await env.BOE_DATA.get(`realm:${normalize(realm)}`, 'json'); return (data?.items ?? []).filter(entry => entry.itemId === Number(item)).map(entry => ({ ...entry, realm: data.realm, updatedAt: data.updatedAt })); }
-async function allPrices(env, item) { const realms = (await env.BOE_DATA.get('meta:realms', 'json'))?.realms ?? []; return (await Promise.all(realms.map(realm => price(env, realm, item)))).flat().sort((a, b) => a.min - b.min); }
-function components(item, realms) { return [{ type: 1, components: [{ type: 3, custom_id: `boe:difficulty:${item}`, placeholder: 'Filter difficulty', options: ['All', 'Normal', 'Heroic', 'Mythic'].map(value => ({ label: value, value: value.toLowerCase() })) }] }, { type: 1, components: [{ type: 2, style: 1, label: 'All variants', custom_id: `boe:compare:${item}` }] }, { type: 1, components: [{ type: 3, custom_id: `boe:realm:${item}`, placeholder: 'Choose a realm', options: realms.slice(0, 25).map(realm => ({ label: realm, value: realm })) }] }]; }
-const variant = row => `${row.difficulty ?? 'Unknown'} · bonuses ${row.bonusLists?.join(',') || 'none'} · modifiers ${(row.modifiers ?? []).map(m => `${m.type}:${m.value}`).join(',') || 'none'}`;
-async function embed(env, item, mode = 'summary', selectedRealm) {
-  const meta = await env.BOE_DATA.get(`item:${item}`, 'json'), allRows = await allPrices(env, item), realms = (await env.BOE_DATA.get('meta:realms', 'json'))?.realms ?? [], title = meta?.name ?? `Item ${item}`;
-  const rows = mode === 'difficulty' ? allRows.filter(row => selectedRealm === 'all' || row.difficulty?.toLowerCase() === selectedRealm) : allRows;
-  if (!rows.length) return { embeds: [{ title, description: 'No current listings on tracked realms.', color: 0x5865F2 }], components: components(item, realms) };
-  if (mode === 'realm') { const realmRows = rows.filter(entry => normalize(entry.realm) === normalize(selectedRealm)); return { embeds: [{ title, description: realmRows.length ? realmRows.slice(0, 20).map(row => `**${row.realm}** — ${variant(row)}\n${gold(row.min)} · ${row.quantity} listings`).join('\n') : `No current listing on **${selectedRealm}**.`, color: 0x5865F2 }], components: components(item, realms) }; }
-  if (mode === 'compare' || mode === 'difficulty') return { embeds: [{ title, description: rows.slice(0, 20).map((row, i) => `**${i + 1}. ${row.realm} — ${gold(row.min)}**\n${variant(row)} · ${row.quantity} listings`).join('\n'), footer: { text: `${rows.length} variants${rows.length > 20 ? ' — showing first 20' : ''}` }, color: 0x5865F2 }], components: components(item, realms) };
-  const cheapest = rows[0]; return { embeds: [{ title, description: `Cheapest: **${cheapest.realm}**`, fields: [{ name: 'Lowest price', value: `**${gold(cheapest.min)}**`, inline: true }, { name: 'Listings', value: String(cheapest.quantity), inline: true }, { name: 'Tracked realms', value: String(rows.length), inline: true }], footer: { text: `Updated ${new Date(cheapest.updatedAt).toLocaleString('en-GB')} UTC` }, color: 0x5865F2 }], components: components(item, realms) };
+
+async function loadRealm(env, realm, item, difficulty) {
+  const data = await env.BOE_DATA.get(`realm:${normalize(realm)}`, 'json');
+  return (data?.items ?? [])
+    .filter(
+      (entry) =>
+        entry.itemId === Number(item) &&
+        entry.difficulty?.toLowerCase() === difficulty.toLowerCase(),
+    )
+    .map((entry) => ({ ...entry, realm: data.realm, updatedAt: data.updatedAt }));
 }
-export default { async fetch(request, env) {
-  if (request.method !== 'POST') return new Response('BOE Ledger Discord endpoint');
-  if (!await validRequest(request, env)) return new Response('invalid request signature', { status: 401 });
-  const interaction = await request.json();
-  if (interaction.type === 1) return response({ type: 1 });
-  if (interaction.type === 4) { const query = normalize(interaction.data.options?.find(option => option.focused)?.value); const choices = (await env.BOE_DATA.get('items:choices', 'json') ?? []).filter(item => normalize(item.name).includes(query)).slice(0, 25); return response({ type: 8, data: { choices: choices.map(item => ({ name: item.name, value: String(item.itemId) })) } }); }
-  if (interaction.type === 2 && interaction.data.name === 'boe') return response({ type: 4, data: await embed(env, interaction.data.options?.[0]?.value) });
-  const [prefix, action, item] = interaction.data.custom_id?.split(':') ?? [];
-  if (interaction.type === 3 && prefix === 'boe') return response({ type: 7, data: await embed(env, item, action, interaction.data.values?.[0]) });
-  return response({ type: 4, data: { content: 'Unknown interaction.' } });
-} };
+
+async function picker(env, item = '', difficulty = '', selectedRealm = '') {
+  const choices = (await env.BOE_DATA.get('items:choices', 'json')) ?? [];
+  const realms = (await env.BOE_DATA.get('meta:realms', 'json'))?.realms ?? [];
+  const components = [
+    {
+      type: 1,
+      components: [
+        {
+          type: 3,
+          custom_id: `boe:item:${difficulty || 'none'}`,
+          placeholder: '1. Select a BOE item',
+          options: choices.slice(0, 25).map((choice) => ({
+            label: choice.name,
+            value: String(choice.itemId),
+            default: String(choice.itemId) === String(item),
+          })),
+        },
+      ],
+    },
+    {
+      type: 1,
+      components: [
+        {
+          type: 3,
+          custom_id: `boe:difficulty:${item || 'none'}`,
+          placeholder: '2. Select a difficulty',
+          options: ['Normal', 'Heroic', 'Mythic'].map((name) => ({
+            label: name,
+            value: name.toLowerCase(),
+            default: name.toLowerCase() === difficulty,
+          })),
+        },
+      ],
+    },
+  ];
+
+  const itemMeta = item ? await env.BOE_DATA.get(`item:${item}`, 'json') : null;
+  if (!item || !difficulty) {
+    return {
+      embeds: [
+        {
+          title: '📘 BOE Ledger',
+          description: 'Select both an item and a difficulty to compare EU realm prices.',
+          color: 0x2f6fed,
+        },
+      ],
+      components,
+    };
+  }
+
+  const realmRows = await Promise.all(realms.map((realm) => loadRealm(env, realm, item, difficulty)));
+  const summaries = realmRows
+    .filter((rows) => rows.length)
+    .map((rows) => ({ realm: rows[0].realm, cheapest: rows.sort((a, b) => a.min - b.min)[0], count: rows.reduce((sum, row) => sum + row.quantity, 0) }))
+    .sort((a, b) => a.cheapest.min - b.cheapest.min);
+
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 3,
+        custom_id: `boe:realm:${item}:${difficulty}`,
+        placeholder: 'Optional: inspect one realm',
+        options: realms.slice(0, 25).map((realm) => ({ label: realm, value: realm, default: realm === selectedRealm })),
+      },
+    ],
+  });
+
+  if (selectedRealm) {
+    const rows = (await loadRealm(env, selectedRealm, item, difficulty)).sort((a, b) => a.min - b.min);
+    const grouped = new Map();
+    for (const row of rows) {
+      const name = stats(row);
+      const current = grouped.get(name) ?? { name, min: row.min, quantity: 0 };
+      current.min = Math.min(current.min, row.min);
+      current.quantity += row.quantity;
+      grouped.set(name, current);
+    }
+    return {
+      embeds: [
+        {
+          title: `📘 ${itemMeta?.name ?? `Item ${item}`}`,
+          description: `**${selectedRealm} · ${difficulty[0].toUpperCase() + difficulty.slice(1)}**`,
+          fields: [...grouped.values()].sort((a, b) => a.min - b.min).map((row) => ({
+            name: `⚔️ ${row.name}`,
+            value: `💰 **${gold(row.min)}**\n📦 **${row.quantity}** available`,
+            inline: true,
+          })),
+          color: 0x2f6fed,
+        },
+      ],
+      components,
+    };
+  }
+
+  return {
+    embeds: [
+      {
+        title: `📘 ${itemMeta?.name ?? `Item ${item}`}`,
+        description: `**${difficulty[0].toUpperCase() + difficulty.slice(1)} · EU realm comparison**`,
+        fields: summaries.length
+          ? summaries.map(({ realm, cheapest, count }) => ({
+              name: realm,
+              value: `💰 **${gold(cheapest.min)}**\n📦 **${count}** available\n⚔️ ${stats(cheapest)}`,
+              inline: true,
+            }))
+          : [{ name: 'No listings', value: 'No matching auctions were found.' }],
+        color: 0x2f6fed,
+      },
+    ],
+    components,
+  };
+}
+
+export default {
+  async fetch(request, env) {
+    if (request.method !== 'POST') return new Response('BOE Ledger Discord endpoint');
+    if (!(await validRequest(request, env))) return new Response('invalid request signature', { status: 401 });
+    const interaction = await request.json();
+    if (interaction.type === 1) return response({ type: 1 });
+    if (interaction.type === 2 && interaction.data.name === 'boe') {
+      return response({ type: 4, data: await picker(env) });
+    }
+    if (interaction.type === 3) {
+      const [prefix, action, first, second] = interaction.data.custom_id?.split(':') ?? [];
+      if (prefix !== 'boe') return response({ type: 4, data: { content: 'Unknown interaction.' } });
+      const value = interaction.data.values?.[0] ?? '';
+      if (action === 'item') return response({ type: 7, data: await picker(env, value, first === 'none' ? '' : first) });
+      if (action === 'difficulty') return response({ type: 7, data: await picker(env, first === 'none' ? '' : first, value) });
+      if (action === 'realm') return response({ type: 7, data: await picker(env, first, second, value) });
+    }
+    return response({ type: 4, data: { content: 'Unknown interaction.' } });
+  },
+};
